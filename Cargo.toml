@@ -16,18 +16,34 @@ exclude = [
 ]
 
 [dependencies]
-dusk-plonk = {version = "0.8.2", default-features = false, features = ["alloc"]}
-dusk-bls12_381 = "0.8"
-dusk-jubjub = "0.10"
-dusk-schnorr = "0.7.1"
-dusk-poseidon = { version = "0.22", features = ["canon"] }
-dusk-bytes = "0.1"
-rand_core = "0.6.0"
-rand = "0.8"
+num = "0.3"
+fast-math = "0.1"
+
+algebra = { git = "https://github.com/brucechin/zexe.git", features = ["asm", "bls12_381", "ed_on_bls12_381"]}
+algebra-core = { git = "https://github.com/brucechin/zexe.git", features = ["llvm_asm"]}
+crypto-primitives = { git = "https://github.com/brucechin/zexe.git" }
+
+rand_chacha = "0.2.2"
+rand = "0.7.3"
+rand_xorshift = { version = "0.2" }
+blake2 = { version = "0.8", default-features = false }
+sha2 = "0.9.1"
+merkle = "1.11"
+ring = "0.16.15"
+
+ff-fft = { git = "https://github.com/brucechin/zexe.git", default-features = false , features=["parallel"]}
+gm17 = { git = "https://github.com/brucechin/zexe.git", optional = true, default-features = false }
+groth16 = { git = "https://github.com/brucechin/zexe.git"}#, optional = true, default-features = false }
+
+r1cs-core = { git = "https://github.com/brucechin/zexe.git", features = ["std"] }
+r1cs-std = { git = "https://github.com/brucechin/zexe.git", features = ["ed_on_bls12_381"] }
+
+
+tracing = { version = "0.1", default-features = false, optional = true }
+tracing-subscriber = { version = "0.2", default-features = false, optional = true }
+
+
+num-traits = "0.2"
+
 [dev-dependencies]
-
-
-[features]
-std = [
-    "dusk-plonk/std"
-]
+criterion = "0.3"

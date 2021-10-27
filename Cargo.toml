@@ -30,13 +30,13 @@ tracing = { version = "0.1", default-features = false, optional = true }
 tracing-subscriber = { version = "0.2", default-features = false, optional = true }
 
 ark-std = "0.3.0"
-algebra = { git = "https://github.com/brucechin/zexe.git", features = ["asm", "bls12_381", "ed_on_bls12_381"]}
-algebra-core = { git = "https://github.com/brucechin/zexe.git", features = ["llvm_asm"]}
-groth16 = { git = "https://github.com/brucechin/zexe.git"}#, optional = true, default-features = false }
-r1cs-core = { git = "https://github.com/brucechin/zexe.git", features = ["std"] }
-r1cs-std = { git = "https://github.com/brucechin/zexe.git", features = ["ed_on_bls12_381"] }
-
-
+ark-ff = "0.3.0"
+ark-bls12-381 = "0.3.0"
+ark-r1cs-std = "0.3.1"
+ark-groth16 = "0.3.0"
+ark-crypto-primitives = "0.3.0"
+ark-ed-on-bls12-381 = { version = "^0.3.0", default-features = false, features = [ "r1cs" ] }
+ark-relations = "0.3.0"
 
 [dev-dependencies]
 criterion = "0.3"

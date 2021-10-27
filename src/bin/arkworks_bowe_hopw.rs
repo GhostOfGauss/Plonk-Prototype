@@ -1,18 +1,16 @@
 use algebra::ed_on_bls12_381::*;
-use r1cs_core::*;
-use r1cs_std::alloc::AllocVar;
-use r1cs_std::ed_on_bls12_381::FqVar;
-use r1cs_std::fields::fp::FpVar;
-
 use algebra::ed_on_bls12_381::*;
 use algebra_core::biginteger::*;
 use algebra_core::Zero;
-use num_traits::Pow;
-use r1cs_core::*;
+
+use r1cs_std::alloc::AllocVar;
+use r1cs_std::ed_on_bls12_381::FqVar;
+use r1cs_std::fields::fp::FpVar;
 use r1cs_std::eq::EqGadget;
 
-use groth16::*;
 use r1cs_core::*;
+
+use groth16::*;
 use std::time::Instant;
 
 fn generate_input(

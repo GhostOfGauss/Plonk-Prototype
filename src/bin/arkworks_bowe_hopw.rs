@@ -3,7 +3,6 @@
 //    2. Call BH native and circuit function here.
 use ark_bls12_381::*;
 use ark_ff::{Field, PrimeField, FpParameters, BigInteger};
-use ark_bls12_381::Fq as F;
 use ark_std::{One, Zero, UniformRand};
 
 use ark_r1cs_std::alloc::AllocVar;

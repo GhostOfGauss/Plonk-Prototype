@@ -20,7 +20,13 @@ use ark_std::rand::Rng;
 // use crate::{CRHScheme, CRHSchemeGadget};
 use ark_ed_on_bls12_381::{constraints::FqVar, EdwardsParameters, Fq as Fr};
 use ark_r1cs_std::{alloc::AllocVar, uint8::UInt8, R1CSVar};
-use ark_relations::r1cs::{ConstraintSystem, ConstraintSystemRef};
+use ark_relations::{
+    lc, ns,
+    r1cs::{
+        ConstraintSynthesizer, ConstraintSystem, ConstraintSystemRef, LinearCombination, Namespace, SynthesisError,
+    },
+};
+
 use ark_std::test_rng;
 
 use ark_crypto_primitives::crh::{bowe_hopwood, pedersen};
@@ -89,7 +95,7 @@ fn generate_u8_input(
 }
 
 fn test_native_equality() {
-    let rng = &mut test_rng();
+    let mut rng = &mut test_rng();
     let cs = ConstraintSystem::<Fr>::new_ref();
 
     // let (input, input_var) = generate_u8_input(cs.clone(), 189, rng);
@@ -124,8 +130,7 @@ pub struct BH {
 
 impl ConstraintSynthesizer<Fq> for BH {
     fn generate_constraints(self, cs: ConstraintSystemRef<Fq>) -> Result<(), SynthesisError> {
-
-        let (input, input_var) = generate_u8_input(cs.clone(), self.input.clone());
+        let input_var = generate_u8_input(cs.clone(), self.input.clone());
         println!("number of constraints for input: {}", cs.num_constraints());
 
         Ok(())
@@ -138,42 +143,42 @@ impl ConstraintSynthesizer<Fq> for BH {
 fn main() {
     let cs = ConstraintSystem::<Fr>::new_ref();
 
-    size = 189; // following generate_u8_input()
+    let size = 189; // following generate_u8_input()
     let rng = &mut test_rng();
     let mut input = vec![1u8; size];
     rng.fill_bytes(&mut input);
 
     // Get correct input and output of bowe_hopw here.
 
-    // Get circuit here
-    let bh_circuit = BH {
-        input: input.clone(),
-    };
+    // // Get circuit here
+    // let bh_circuit = BH {
+    //     input: input.clone(),
+    // };
 
-    // Setup
-    println!("start generating random parameters");
-    let begin = Instant::now();
-    let param =
-        generate_random_parameters::<_, _, _>(bh_circuit.clone(), &mut rng)
-            .unwrap();
-    let end = Instant::now();
-        println!("setup time {:?}", end.duration_since(begin));
+    // // Setup
+    // println!("start generating random parameters");
+    // let begin = Instant::now();
+    // let param =
+    //     generate_random_parameters::<algebra::Bls12_381, _, _>(bh_circuit.clone(), &mut rng)
+    //         .unwrap();
+    // let end = Instant::now();
+    //     println!("setup time {:?}", end.duration_since(begin));
 
-    let pvk = prepare_verifying_key(&param.vk);
-    println!("random parameters generated!\n");
+    // let pvk = prepare_verifying_key(&param.vk);
+    // println!("random parameters generated!\n");
     
-    // Prover
-    let begin = Instant::now();
-    let proof = create_random_proof(bh_circuit, &param, &mut rng).unwrap();
-    let end = Instant::now();
-    println!("prove time {:?}", end.duration_since(begin));
+    // // Prover
+    // let begin = Instant::now();
+    // let proof = create_random_proof(bh_circuit, &param, &mut rng).unwrap();
+    // let end = Instant::now();
+    // println!("prove time {:?}", end.duration_since(begin));
 
-    // Verifier
-    let inputs: Vec<Fq> = vec![];
-    let begin = Instant::now();
-    assert!(verify_proof(&pvk, &proof, &inputs[..]).unwrap());
-    let end = Instant::now();
-    println!("verification time {:?}", end.duration_since(begin));
+    // // Verifier
+    // let inputs: Vec<Fq> = vec![];
+    // let begin = Instant::now();
+    // assert!(verify_proof(&pvk, &proof, &inputs[..]).unwrap());
+    // let end = Instant::now();
+    // println!("verification time {:?}", end.duration_since(begin));
 
     println!("Run successfully!")
 }

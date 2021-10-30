@@ -34,9 +34,16 @@ ark-ff = "0.3.0"
 ark-bls12-381 = "0.3.0"
 ark-r1cs-std = "0.3.1"
 ark-groth16 = "0.3.0"
-ark-crypto-primitives = "0.3.0"
+ark-crypto-primitives = {version = "0.3.0", features = ["r1cs"]}
 ark-ed-on-bls12-381 = { version = "^0.3.0", default-features = false, features = [ "r1cs" ] }
 ark-relations = "0.3.0"
+
+[patch.crates-io]
+ark-crypto-primitives = {git = "https://github.com/arkworks-rs/crypto-primitives", branch = "main"}
+
+[features]
+std = ["ark-std/std", "ark-ff/std", "ark-bls12-381/std", "ark-r1cs-std/std", "ark-groth16/std", "ark-crypto-primitives/std", "ark-ed-on-bls12-381/std", "ark-relations/std"]
+
 
 [dev-dependencies]
 criterion = "0.3"

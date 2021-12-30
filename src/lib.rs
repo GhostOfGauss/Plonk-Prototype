@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with manta-api.  If not, see <http://www.gnu.org/licenses/>.
 
-pub mod zk;
-pub mod sbox;
-pub mod poseidon_hash;
+pub mod poseidon;
+// pub mod poseidon_hash;
+// pub mod sbox;
+// pub mod zk;

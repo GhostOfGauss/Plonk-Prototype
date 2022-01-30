@@ -1,16 +1,13 @@
 //! optimized poseidon
 
-use crate::poseidon::constants::PoseidonConstants;
-use crate::poseidon::matrix::Matrix;
-use crate::poseidon::mds::SparseMatrix;
-use crate::poseidon::PoseidonError;
+use crate::poseidon::{
+    constants::PoseidonConstants, matrix::Matrix, mds::SparseMatrix, PoseidonError,
+};
 use ark_ec::TEModelParameters;
 use ark_ff::PrimeField;
 use derivative::Derivative;
-use plonk_core::constraint_system::StandardComposer;
-use plonk_core::prelude as plonk;
-use std::fmt::Debug;
-use std::marker::PhantomData;
+use plonk_core::{constraint_system::StandardComposer, prelude as plonk};
+use std::{fmt::Debug, marker::PhantomData};
 
 // TODO: reduce duplicate code with `poseidon_ref`
 pub trait PoseidonSpec<COM, const WIDTH: usize> {
@@ -191,13 +188,10 @@ pub trait PoseidonSpec<COM, const WIDTH: usize> {
         state: &[Self::Field; WIDTH],
         coeff: impl IntoIterator<Item = Self::ParameterField>,
     ) -> Self::Field {
-        state
-            .iter()
-            .zip(coeff)
-            .fold(Self::zero(c), |acc, (x, y)| {
-                let tmp = Self::muli(c, x, &y);
-                Self::add(c, &tmp, &acc)
-            })
+        state.iter().zip(coeff).fold(Self::zero(c), |acc, (x, y)| {
+            let tmp = Self::muli(c, x, &y);
+            Self::add(c, &tmp, &acc)
+        })
     }
 
     /// compute state @ Mat where `state` is a row vector
@@ -239,14 +233,12 @@ pub trait PoseidonSpec<COM, const WIDTH: usize> {
 
             // Except for first row/column, diagonals are one.
             *val = Self::add(c, val, &state[j]);
-            //
             // // First row is dense.
             let tmp = Self::muli(c, &state[0], &matrix.v_rest[j - 1]);
             *val = Self::add(c, val, &tmp);
         }
         *state = result;
     }
-
 
     /// return (x + pre_add)^5 + post_add
     fn quintic_s_box(
@@ -432,7 +424,118 @@ where
         c.arithmetic_gate(|g| g.witness(*x, zero, None).add(*y, F::zero()))
     }
 
+    #[cfg(not(feature = "no-optimize"))]
+    fn quintic_s_box(
+        c: &mut StandardComposer<F, P>,
+        x: Self::Field,
+        pre_add: Option<Self::ParameterField>,
+        post_add: Option<Self::ParameterField>,
+    ) -> Self::Field {
+        match (pre_add, post_add) {
+            (None, None) => Self::power_of_5(c, &x),
+            (Some(_), None) => {
+                unreachable!("currently no one is using this")
+            },
+            (None, Some(post_add)) => {
+                let x_2 = Self::mul(c, &x, &x);
+                let x_4 = Self::mul(c, &x_2, &x_2);
+                c.arithmetic_gate(|g| g.witness(x_4, x, None).mul(F::one()).constant(post_add))
+            },
+            (Some(_), Some(_)) => {
+                unreachable!("currently no one is using this")
+            },
+        }
+    }
 
+    #[cfg(not(feature = "no-optimize"))]
+    fn linear_combination(
+        c: &mut StandardComposer<F, P>,
+        state: &[Self::Field; WIDTH],
+        coeff: impl IntoIterator<Item = Self::ParameterField>,
+    ) -> Self::Field {
+        // some specialization on width
+        let coeffs = coeff.into_iter().collect::<Vec<_>>();
+        match WIDTH {
+            3 => c.arithmetic_gate(|g| {
+                g.witness(state[0], state[1], None)
+                    .add(coeffs[0], coeffs[1])
+                    .fan_in_3(coeffs[2], state[2])
+            }),
+            _ => state.iter().zip(coeffs).fold(Self::zero(c), |acc, (x, y)| {
+                let tmp = Self::muli(c, x, &y);
+                Self::add(c, &tmp, &acc)
+            }),
+        }
+    }
+
+    #[cfg(not(feature = "no-optimize"))]
+    fn product_mds_with_sparse_matrix(
+        c: &mut StandardComposer<F, P>,
+        state: &mut [Self::Field; WIDTH],
+        matrix: &SparseMatrix<Self::ParameterField>,
+    ) {
+        let mut result = Self::zeros::<WIDTH>(c);
+
+        result[0] = Self::linear_combination(c, state, matrix.w_hat.iter().cloned());
+        for (j, val) in result.iter_mut().enumerate().skip(1) {
+            // for each j, result[j] = state[j] + state[0] * v_rest[j-1]
+            *val = c.arithmetic_gate(|g| {
+                g.witness(state[0], state[j], None)
+                    .add(matrix.v_rest[j - 1], F::one())
+            });
+        }
+        *state = result;
+    }
+}
+
+pub struct PlonkSpec2<const WIDTH: usize>;
+
+impl<F, P, const WIDTH: usize> PoseidonSpec<plonk::StandardComposer<F, P>, WIDTH>
+    for PlonkSpec2<WIDTH>
+where
+    F: PrimeField,
+    P: TEModelParameters<BaseField = F>,
+{
+    type Field = plonk::Variable;
+    type ParameterField = F;
+
+    fn alloc(c: &mut StandardComposer<F, P>, v: Self::ParameterField) -> Self::Field {
+        c.add_input(v)
+    }
+
+    fn zeros<const W: usize>(c: &mut StandardComposer<F, P>) -> [Self::Field; W] {
+        [c.zero_var(); W]
+    }
+
+    fn add(c: &mut StandardComposer<F, P>, x: &Self::Field, y: &Self::Field) -> Self::Field {
+        c.arithmetic_gate(|g| g.witness(*x, *y, None).add(F::one(), F::one()))
+    }
+
+    fn addi(
+        c: &mut StandardComposer<F, P>,
+        a: &Self::Field,
+        b: &Self::ParameterField,
+    ) -> Self::Field {
+        let zero = c.zero_var();
+        c.arithmetic_gate(|g| {
+            g.witness(*a, zero, None)
+                .add(F::one(), F::zero())
+                .constant(*b)
+        })
+    }
+
+    fn mul(c: &mut StandardComposer<F, P>, x: &Self::Field, y: &Self::Field) -> Self::Field {
+        c.arithmetic_gate(|q| q.witness(*x, *y, None).mul(F::one()))
+    }
+
+    fn muli(
+        c: &mut StandardComposer<F, P>,
+        x: &Self::Field,
+        y: &Self::ParameterField,
+    ) -> Self::Field {
+        let zero = c.zero_var();
+        c.arithmetic_gate(|g| g.witness(*x, zero, None).add(*y, F::zero()))
+    }
 
     #[cfg(not(feature = "no-optimize"))]
     fn quintic_s_box(
@@ -445,59 +548,94 @@ where
             (None, None) => Self::power_of_5(c, &x),
             (Some(_), None) => {
                 unreachable!("currently no one is using this")
-            }
+            },
             (None, Some(post_add)) => {
                 let x_2 = Self::mul(c, &x, &x);
                 let x_4 = Self::mul(c, &x_2, &x_2);
                 c.arithmetic_gate(|g| g.witness(x_4, x, None).mul(F::one()).constant(post_add))
-            }
+            },
             (Some(_), Some(_)) => {
                 unreachable!("currently no one is using this")
-            }
+            },
         }
     }
 
     #[cfg(not(feature = "no-optimize"))]
-    fn linear_combination(c: &mut StandardComposer<F, P>, state: &[Self::Field; WIDTH], coeff: impl IntoIterator<Item=Self::ParameterField>) -> Self::Field {
-        // some specialization on width
+    fn linear_combination(
+        c: &mut StandardComposer<F, P>,
+        state: &[Self::Field; WIDTH],
+        coeff: impl IntoIterator<Item = Self::ParameterField>,
+    ) -> Self::Field {
         let coeffs = coeff.into_iter().collect::<Vec<_>>();
-        match WIDTH {
-            3 => c.arithmetic_gate(|g| {
+        let mut remaining = WIDTH;
+        let mut index = 0;
+        let mut result: Self::Field;
+        // the first time you have no accumulated result yet, so you can take 3 inputs
+        if remaining < 3 {
+            // this is unlikely, WIDTH is usually at least 3
+            result = c.arithmetic_gate(|g| {
                 g.witness(state[0], state[1], None)
                     .add(coeffs[0], coeffs[1])
-                    .fan_in_3(coeffs[2], state[2])
-            }),
-            _ => state
-                .iter()
-                .zip(coeffs)
-                .fold(Self::zero(c), |acc, (x, y)| {
-                    let tmp = Self::muli(c, x, &y);
-                    Self::add(c, &tmp, &acc)
-                }),
+            });
+            remaining -= 2;
+        } else {
+            result = c.arithmetic_gate(|g| {
+                g.witness(state[index], state[index + 1], None)
+                    .add(coeffs[index], coeffs[index + 1])
+                    .fan_in_3(coeffs[index + 2], state[index + 2])
+            });
+            index += 3;
+            remaining -= 3;
         }
+
+        // Now you have an accumulated result to carry, so can only take 2 inputs at a
+        // time
+        while remaining > 0 {
+            if remaining < 2 {
+                // Accumulate remaining one
+                result = c.arithmetic_gate(|g| {
+                    g.witness(state[index], result, None)
+                        .add(coeffs[index], Self::ParameterField::one())
+                });
+                remaining -= 1;
+            } else {
+                // Accumulate next two
+                result = c.arithmetic_gate(|g| {
+                    g.witness(state[index], state[index + 1], None)
+                        .add(coeffs[index], coeffs[index + 1])
+                        .fan_in_3(Self::ParameterField::one(), result)
+                });
+                index += 2;
+                remaining -= 2;
+            }
+        }
+        result
     }
 
     #[cfg(not(feature = "no-optimize"))]
-    fn product_mds_with_sparse_matrix(c: &mut StandardComposer<F, P>, state: &mut [Self::Field; WIDTH], matrix: &SparseMatrix<Self::ParameterField>) {
+    fn product_mds_with_sparse_matrix(
+        c: &mut StandardComposer<F, P>,
+        state: &mut [Self::Field; WIDTH],
+        matrix: &SparseMatrix<Self::ParameterField>,
+    ) {
         let mut result = Self::zeros::<WIDTH>(c);
 
         result[0] = Self::linear_combination(c, state, matrix.w_hat.iter().cloned());
         for (j, val) in result.iter_mut().enumerate().skip(1) {
             // for each j, result[j] = state[j] + state[0] * v_rest[j-1]
-            *val = c.arithmetic_gate(|g| g.witness(state[0], state[j], None).add(matrix.v_rest[j - 1], F::one()));
+            *val = c.arithmetic_gate(|g| {
+                g.witness(state[0], state[j], None)
+                    .add(matrix.v_rest[j - 1], F::one())
+            });
         }
         *state = result;
     }
-
-
-
 }
 
 mod r1cs {
     use crate::poseidon::poseidon::PoseidonSpec;
     use ark_ff::PrimeField;
-    use ark_r1cs_std::fields::fp::FpVar;
-    use ark_r1cs_std::prelude::*;
+    use ark_r1cs_std::{fields::fp::FpVar, prelude::*};
     use ark_relations::r1cs::ConstraintSystemRef;
     use std::convert::TryInto;
 
@@ -548,18 +686,23 @@ mod r1cs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::poseidon::constants::PoseidonConstants;
-    use crate::poseidon::poseidon::r1cs::R1csSpec;
-    use crate::poseidon::poseidon_ref::{NativeSpecRef, PoseidonRef};
-    use crate::tests::conversion::cast_field;
-    use crate::tests::neptune_hyper_parameter::collect_neptune_constants;
+    use crate::{
+        poseidon::{
+            constants::PoseidonConstants,
+            poseidon::r1cs::R1csSpec,
+            poseidon_ref::{NativeSpecRef, PoseidonRef},
+        },
+        tests::{conversion::cast_field, neptune_hyper_parameter::collect_neptune_constants},
+    };
     use ark_ec::PairingEngine;
     use ark_r1cs_std::R1CSVar;
     use ark_relations::r1cs::ConstraintSystem;
     use ark_std::{test_rng, UniformRand};
     use ff::Field;
-    use neptune::poseidon::{HashMode, PoseidonConstants as NeptunePoseidonConstants};
-    use neptune::Strength;
+    use neptune::{
+        poseidon::{HashMode, PoseidonConstants as NeptunePoseidonConstants},
+        Strength,
+    };
 
     type E = ark_bls12_381::Bls12_381;
     type P = ark_ed_on_bls12_381::EdwardsParameters;
@@ -654,13 +797,13 @@ mod tests {
     //     let mut rng = test_rng();
     //     let param = PoseidonConstants::generate::<WIDTH>();
     //     let inputs = (0..ARITY).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
-    //     let mut poseidon_optimized = Poseidon::<(), NativePoseidonSpec<Fr, WIDTH>, WIDTH>::new(&mut (), param.clone());
-    //     inputs.iter().for_each(|x| {
-    //         let _ = poseidon_optimized.input(*x).unwrap();
+    //     let mut poseidon_optimized = Poseidon::<(), NativePoseidonSpec<Fr,
+    // WIDTH>, WIDTH>::new(&mut (), param.clone());     inputs.iter().
+    // for_each(|x| {         let _ = poseidon_optimized.input(*x).unwrap();
     //     });
     //     let mut poseidon_optimized2 = poseidon_optimized.clone();
-    //     assert_eq!(poseidon_optimized.output_hash(&mut ()), poseidon_optimized2.output_hash(&mut ()));
-    // }
+    //     assert_eq!(poseidon_optimized.output_hash(&mut ()),
+    // poseidon_optimized2.output_hash(&mut ())); }
 
     #[test]
     // poseidon should output something if num_inputs = arity
@@ -669,7 +812,7 @@ mod tests {
             println!("WARNING: plonk-specific optimization is disabled");
         }
 
-        const ARITY: usize = 2;
+        const ARITY: usize = 4;
         const WIDTH: usize = ARITY + 1;
         let mut rng = test_rng();
 
@@ -686,6 +829,48 @@ mod tests {
         let mut c = StandardComposer::<Fr, P>::new();
         let inputs_var = inputs.iter().map(|x| c.add_input(*x)).collect::<Vec<_>>();
         let mut poseidon_circuit = Poseidon::<_, PlonkSpec<WIDTH>, WIDTH>::new(&mut c, param);
+        inputs_var.iter().for_each(|x| {
+            let _ = poseidon_circuit.input(*x).unwrap();
+        });
+        let plonk_hash = poseidon_circuit.output_hash(&mut c);
+
+        c.check_circuit_satisfied();
+
+        let expected = c.add_input(native_hash);
+        c.assert_equal(expected, plonk_hash);
+
+        c.check_circuit_satisfied();
+        println!(
+            "circuit size for WIDTH {} poseidon: {}",
+            WIDTH,
+            c.circuit_size()
+        )
+    }
+
+    #[test]
+    // poseidon should output something if num_inputs = arity
+    fn check_plonk_spec2_with_native() {
+        if cfg!(feature = "no-optimize") {
+            println!("WARNING: plonk-specific optimization is disabled");
+        }
+
+        const ARITY: usize = 4;
+        const WIDTH: usize = ARITY + 1;
+        let mut rng = test_rng();
+
+        let param = PoseidonConstants::generate::<WIDTH>();
+        let mut poseidon_native =
+            Poseidon::<(), NativeSpec<Fr, WIDTH>, WIDTH>::new(&mut (), param.clone());
+        let inputs = (0..ARITY).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
+
+        inputs.iter().for_each(|x| {
+            let _ = poseidon_native.input(*x).unwrap();
+        });
+        let native_hash: Fr = poseidon_native.output_hash(&mut ());
+
+        let mut c = StandardComposer::<Fr, P>::new();
+        let inputs_var = inputs.iter().map(|x| c.add_input(*x)).collect::<Vec<_>>();
+        let mut poseidon_circuit = Poseidon::<_, PlonkSpec2<WIDTH>, WIDTH>::new(&mut c, param);
         inputs_var.iter().for_each(|x| {
             let _ = poseidon_circuit.input(*x).unwrap();
         });
